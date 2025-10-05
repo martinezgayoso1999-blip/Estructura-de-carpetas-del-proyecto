@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Consulta de Cursos - Tau Prolog (debuggable)</title>
+
+  <!-- Tau-Prolog -->
+  <script src="https://cdn.jsdelivr.net/npm/tau-prolog/modules/core.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tau-prolog/modules/lists.js"></script>
+
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; background:#f4f6f8; margin:0; padding:30px; display:flex; justify-content:center; }
+    .card { width:480px; background:#fff; padding:20px; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,0.08); }
+    h1 { margin:0 0 12px; color:#2c3e50; font-size:20px; text-align:center; }
+    label{ font-weight:600; display:block; margin-bottom:6px; }
+    select, button { width:100%; padding:10px; border-radius:6px; border:1px solid #ccc; box-sizing:border-box; }
+    button { margin-top:10px; background:#3498db; color:white; border:none; font-weight:700; cursor:pointer; }
+    ul { padding:0; margin-top:12px; list-style:none; }
+    li { background:#ecf0f1; padding:8px 10px; margin-bottom:8px; border-radius:6px; }
+    .info { color:#7f8c8d; text-align:center; margin-top:12px; }
+    pre.debug { background:#111; color:#0f0; padding:8px; border-radius:6px; font-size:12px; overflow:auto; max-height:120px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Consulta de Cursos Disponibles</h1>
+
+    <label for="alumno">Selecciona un alumno:</label>
+    <select id="alumno">
+      <option value="alumno1">alumno1</option>
+      <option value="alumno2">alumno2</option>
+      <option value="alumno3">alumno3</option>
+    </select>
+
+    <button id="btnConsultar" disabled>Consultar cursos disponibles</button>
+
+    <div id="salida"></div>
+
+    <p class="info">Abre la consola del navegador (F12 → Console) si algo falla.</p>
+    <pre id="debug" class="debug" style="display:none"></pre>
+  </div>
+
+  <script>
+    // Crear sesión
+    const session = pl.create();
+
+    // Programa Prolog
+    const programa = `
+      curso(matematicas1).
+      curso(matematicas2).
+      curso(fisica1).
+      curso(fisica2).
+      curso(programacion1).
+      curso(programacion2).
+      curso(algoritmos).
+      curso(basesdedatos).
+
+      prerequisito(matematicas2, matematicas1).
+      prerequisito(fisica2, fisica1).
+      prerequisito(programacion2, programacion1).
+      prerequisito(algoritmos, programacion2).
+      prerequisito(basesdedatos, programacion2).
+
+      aprobado(alumno1, matematicas1).
+      aprobado(alumno1, fisica1).
+      aprobado(alumno1, programacion1).
+
+      aprobado(alumno2, matematicas1).
+      aprobado(alumno2, fisica1).
+
+      disponible(Alumno, Curso) :-
+        curso(Curso),
+        \\+ aprobado(Alumno, Curso),
+        forall(prerequisito(Curso, Pre), aprobado(Alumno, Pre)).
+
+      cursos_disponibles(Alumno, Lista) :-
+        findall(C, disponible(Alumno, C), Lista).
+    `;
+
+    const btn = document.getElementById('btnConsultar');
+    const salida = document.getElementById('salida');
+    const debugEl = document.getElementById('debug');
+
+    function debug(msg) {
+      console.log(msg);
+      debugEl.style.display = 'block';
+      debugEl.textContent += msg + "\n";
+    }
+
+    // Consultar el programa con callbacks (asegurar que se cargó antes de usar)
+    session.consult(programa, {
+      success: () => {
+        debug("Programa Prolog cargado correctamente.");
+        btn.disabled = false;
+      },
+      error: (err) => {
+        debug("Error al cargar programa: " + err);
+        salida.innerHTML = `<p class="info">Error cargando base de conocimiento. Mira la consola.</p>`;
+      }
+    });
+
+    // Función que crea la lista en DOM
+    function mostrarLista(cursos) {
+      salida.innerHTML = "";
+      if (!cursos || cursos.length === 0) {
+        salida.innerHTML = `<p class="info">No hay cursos disponibles para este alumno.</p>`;
+        return;
+      }
+      const ul = document.createElement('ul');
+      cursos.forEach(c => {
+        const li = document.createElement('li');
+        li.textContent = c;
+        ul.appendChild(li);
+      });
+      salida.appendChild(ul);
+    }
+
+    // Procesa la respuesta de Tau-Prolog tratando varios formatos
+    function parseListaDesdeAnswer(answer) {
+      // Intentamos obtener directamente la variable L
+      try {
+        const term = answer.lookup && answer.lookup("L");
+        if (term) {
+          // term.toString() -> "[matematicas2,fisica2]"
+          const listaStr = term.toString();
+          const items = listaStr.replace(/^\[|\]$/g, "").split(",").map(s => s.trim()).filter(Boolean);
+          return items;
+        }
+      } catch (e) {
+        // si falla, intentamos fallback con format_answer
+        console.warn("lookup falló, hago fallback:", e);
+      }
+
+      // Fallback: formatear la respuesta y extraer la lista con regex
+      try {
+        const formatted = session.format_answer(answer); // ej: "L = [matematicas2, fisica2]."
+        const match = formatted.match(/\[([^\]]*)\]/);
+        if (match && match[1].trim().length > 0) {
+          return match[1].split(",").map(s => s.trim()).filter(Boolean);
+        }
+      } catch (e) {
+        console.error("No pude parsear la respuesta:", e);
+      }
+
+      return [];
+    }
+
+    // Botón: consulta
+    btn.addEventListener('click', () => {
+      salida.innerHTML = "";
+      debugEl.textContent = ""; // limpiar debug visual
+      debug("Se inicia consulta...");
+
+      const alumno = document.getElementById('alumno').value;
+
+      // Hacemos la query de forma segura con callbacks
+      session.query(`cursos_disponibles(${alumno}, L).`, {
+        success: () => {
+          let acumulado = null;
+          session.answers(function(answer) {
+            if (answer === false) {
+              // fin de respuestas
+              debug("Fin de respuestas.");
+              // Si acumulado es null -> no hubo respuestas
+              if (acumulado === null) {
+                mostrarLista([]); // no hay cursos o no hay solución
+              } else {
+                mostrarLista(acumulado);
+              }
+            } else {
+              // recibimos una sustitución (substitution)
+              debug("Respuesta cruda: " + session.format_answer(answer));
+              const lista = parseListaDesdeAnswer(answer);
+              // findall devuelve la lista completa en una sola respuesta, así que la guardamos
+              acumulado = lista;
+            }
+          });
+        },
+        error: (err) => {
+          debug("Error en query: " + err);
+          salida.innerHTML = `<p class="info">Error ejecutando la consulta. Revisa la consola.</p>`;
+        }
+      });
+    });
+  </script>
+</body>
+</html>
