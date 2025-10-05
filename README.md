@@ -62,7 +62,7 @@ Cuando haces clic en *Consultar*, el sistema busca los cursos que el alumno **pu
 
 ## 👨‍💻 Autor
 
-Proyecto realizado por **[Tu nombre aquí]**  
+Proyecto realizado por **[ISRAEL ALEJANDRO MARTINEZ GAYOSO]**  
 Para fines educativos – curso de *Inteligencia Artificial / Programación Lógica*.
 
 
